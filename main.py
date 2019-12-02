@@ -1,63 +1,75 @@
 from __future__ import division
 import math
+import threading
 from tkinter import Button, Label, Tk
-
-from pyaudio import PyAudio
-
-
-def sine_tone(frequency, duration, volume=1., sample_rate=22050):
-    """
-    https://stackoverflow.com/a/974291/6329992
-    :param frequency:
-    :param duration:
-    :param volume:
-    :param sample_rate:
-    :return:
-    """
-    n_samples = int(sample_rate * duration)
-    restframes = n_samples % sample_rate
-
-    p = PyAudio()
-    stream = p.open(format=p.get_format_from_width(2),
-                    channels=1,
-                    rate=sample_rate,
-                    output=True)
-    s = lambda t: volume * math.sin(2 * math.pi * frequency * t / sample_rate)
-    samples = (int(s(t) * 0x7f + 0x80) for t in range(n_samples))
-    for buf in zip(*[samples]*sample_rate): # write several samples at a time
-        stream.write(bytes(bytearray(buf)))
-
-    # fill remainder of frameset with silence
-    stream.write(b'\x80' * restframes)
-
-    stream.stop_stream()
-    stream.close()
-    p.terminate()
+from core.stream import Stream
+import time
 
 
-def main():
+class MainWindow:
+    def __init__(self):
+        self.frequency = 100
 
-    window = Tk()
-    window.title("Piano reference")
-    window.geometry('350x200')
+    def show(self):
+        window = Tk()
+        window.title("Piano reference")
+        window.geometry('350x200')
 
-    lbl = Label(window, text="A4")
-    lbl.grid(column=2, row=1)
+        lbl = Label(window, text="A4")
+        lbl.grid(column=2, row=1)
 
-    def left_click():
-        lbl.configure(text="")
+        running = threading.Event()
 
-    def right_click():
-        lbl.configure(text="")
+        def left_click(event):
+            running.clear()
+            running.set()
+            s = Stream(44100)
+            s.create_sine_tone(frequency, 1.)
+            thread = threading.Thread(target=s.play_sine_tone, args=(running, 1,))
+            thread.start()
+            lbl.configure(text=frequency)
 
-    btn1 = Button(window, text="<<", command=left_click)
-    btn2 = Button(window, text=">>", command=right_click)
+        def right_click(event):
+            running.clear()
+            running.set()
+            s = Stream(44100)
+            s.create_sine_tone(frequency, 1.)
+            thread = threading.Thread(target=s.play_sine_tone, args=(running, 1,))
+            thread.start()
+            lbl.configure(text=frequency)
 
-    btn1.grid(column=0, row=0)
-    btn2.grid(column=1, row=0)
+        btn1 = Button(window, text="<<", command=lambda: left_click(None))
+        btn2 = Button(window, text=">>", command=lambda: right_click(None))
 
-    window.mainloop()
+        btn1.grid(column=0, row=0)
+        btn2.grid(column=1, row=0)
+
+        window.bind('<Left>', left_click)
+        window.bind('<Right>', right_click)
+
+        window.mainloop()
+
+
+class TestThread(threading.Thread):
+    def __init__(self, frequency):
+        """ constructor, setting initial variables """
+        self._stopevent = threading.Event()
+        self.frequency = frequency
+
+        threading.Thread.__init__(self)
+
+    def run(self):
+        s = Stream(44100)
+        s.create_sine_tone(self.frequency, 1.)
+        s.play_sine_tone(self._stopevent.isSet(), 1.)
+
+    def join(self, timeout=None):
+        """ Stop the thread. """
+        self._stopevent.set()
+        threading.Thread.join(self, timeout)
 
 
 if __name__ == '__main__':
-    main()
+    mw = MainWindow()
+    mw.show()
+
